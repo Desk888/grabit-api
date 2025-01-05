@@ -18,12 +18,17 @@ func init() {
 }
 
 func main() {
-	r := gin.Default()
+	/*
+	* Main program execution and nest for api routes
+	*/
+
+	r := gin.Default() // Initiliase Gin Router
 
 	// Authentication routes
-	r.POST("/signup", controllers.Signup)
-	r.POST("/login", controllers.Signin)
-	r.GET("/validate", middleware.RequireAuth, controllers.Validate)
+	authGroup := r.Group("/auth")
+	authGroup.POST("/signup", controllers.Signup)
+	authGroup.POST("/login", controllers.Signin)
+	authGroup.GET("/validate", middleware.RequireAuth, controllers.Validate)
 	// Create logout functionality
 
 	r.Run()

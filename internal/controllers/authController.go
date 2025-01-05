@@ -105,3 +105,5 @@ func Validate(c *gin.Context) {
 		"message": user,
 	})
 }
+
+// Add Logout Function & Implement OAuth for Google Login
