@@ -1,5 +1,5 @@
 
-# Graibt - API Documentation
+# Grabit - API Documentation
 ________________________________________________________________________
  Official documentation for the **Grabit** open-source project maintained by the Grabit team. This documentation is constantly being reviewed and updated by the team in correspondence with ongoing development and new features implementation.
 
