@@ -158,3 +158,14 @@ func MigrateTables() {
 
 ________________________________________________________________________
 
+# Docker Compose Commands
+
+1. **Build** the images (skip cache if needed):
+   ```bash
+   docker-compose build --no-cache
+
+   Start Containers: 
+   docker-compose up
+
+   Stop Containers:
+   docker-compose down
