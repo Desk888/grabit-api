@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15
+    container_name: my-postgres
+
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  myapp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: my-go-app
+
+    depends_on:
+      - db
+
+    environment:
+      - DB=host=db user=postgres password=postgres dbname=postgres port=5432 sslmode=disable
+
+    ports:
+      - "8080:8080"
+
+volumes:
+  db_data:
