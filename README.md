@@ -79,16 +79,62 @@ import (
 	"gorm.io/gorm" // import GORM framework
 ) 
 
-// User model example
+// ENums for Conditions
+const (
+	ConditionUsedFair         = "Used - Fair"
+	ConditionUsedGood         = "Used - Good"
+	ConditionUsedExcellent    = "Used - Excellent"
+	ConditionBrandNewUnboxed  = "Brand New - Unboxed"
+	ConditionBrandNewSealed   = "Brand New - Used"
+)
+
+// User model
 type User struct {
-	gorm.Model // identify the GORM framework to be used
-	ID uint `gorm:"primaryKey"` // create fields
-	FirstName string
-	LastName string
-	Username string `gorm:"unique"`
-	Email string `gorm:"unique"`
-	PasswordHash string
-	PhoneNumber string
+	gorm.Model
+	ProfilePictureURL string `gorm:"size:255"` // URL to the profile picture in S3
+	FirstName    string
+	LastName     string
+	Username     string `gorm:"uniqueIndex;not null"`
+	Email        string `gorm:"uniqueIndex;not null"`
+	PasswordHash string `gorm:"not null"`
+	PhoneNumber  string
+	Ads          []Ad       `gorm:"foreignKey:UserID"`
+	FavouriteAds []Favorite `gorm:"foreignKey:UserID"`
+}
+
+// Ad Category model
+type Category struct {
+	gorm.Model
+	Name string `gorm:"unique;not null"`
+	Ads  []Ad   `gorm:"foreignKey:CategoryID"` 
+}
+
+// Ads model
+type Ad struct {
+	gorm.Model
+	Title        string    `gorm:"not null"`
+	Description  string    `gorm:"type:text"`
+	CategoryID   uint      `gorm:"not null"` 
+	UserID       uint      `gorm:"not null"` 
+	Condition    string    `gorm:"not null;check:condition IN ('Used - Fair','Used - Good','Used - Excellent','Brand New - Unboxed','Brand New - Sealed')"`
+	City         string
+	Postcode     string
+	PhoneNumber  string
+	EmailAddress string
+	CreatedAt    time.Time
+	Category     Category `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"` 
+	User         User     `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	
+	// @Danny See how to best implement S3 storage for the ads images
+}
+
+// Ad Favorite model
+type Favorite struct {
+	gorm.Model
+	UserID uint `gorm:"not null"` 
+	AdID   uint `gorm:"not null"`
+	Ad     Ad   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	User   User `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 	CreatedAt time.Time
 }
 ```
@@ -101,12 +147,14 @@ package initializers
 import "github.com/Desk888/api/internal/models" // import models
 
 func MigrateTables() {
-	// Migrate all models, User model migrated as example
+	// Migrate all models
 	DB.AutoMigrate(&models.User{})
+	DB.AutoMigrate(&models.Category{})
+	DB.AutoMigrate(&models.Ad{})
+	DB.AutoMigrate(&models.Favorite{})
+	
 }
 ```
-
-⚠️ All the required application models are currently in development
 
 ________________________________________________________________________
 
