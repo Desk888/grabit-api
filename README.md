@@ -11,18 +11,6 @@ ________________________________________________________________________
 - **Development Db:** PostgresSQL 13.3+ installed locally (required for testing).
 - **Production Db:** PostgreSQL 13.3 (managed separately on **Supabase**)
 
-#### Docker Compose Commands:
-
-1. **Build** the images (skip cache if needed):
-   ```bash
-   docker-compose build --no-cache
-
-   Start Containers: 
-   docker-compose up
-
-   Stop Containers:
-   docker-compose down
-
 #### Dependencies:
 
 Install the following packages required for the functioning of this application, using `go get` in your terminal.
@@ -170,3 +158,14 @@ func MigrateTables() {
 
 ________________________________________________________________________
 
+# Docker Compose Commands
+
+1. **Build** the images (skip cache if needed):
+   ```bash
+   docker-compose build --no-cache
+
+   Start Containers: 
+   docker-compose up
+
+   Stop Containers:
+   docker-compose down
