@@ -23,8 +23,8 @@ const (
 type User struct {
 	gorm.Model
 	ProfilePictureURL string `gorm:"size:255"` // URL to the profile picture in S3
-	FirstName    string
-	LastName     string
+	FirstName    string `gorm:"not null"`
+	LastName     string	`gorm:"not null"`
 	Username     string `gorm:"uniqueIndex;not null"`
 	Email        string `gorm:"uniqueIndex;not null"`
 	PasswordHash string `gorm:"not null"`

@@ -9,9 +9,9 @@ import (
 
 func init() {
 	/*
-	* The init function is used to initialize the application helper functions
-	* The helper functions are found in the internal/initializers folder
-	* These functions are important for the system to function correctly
+		* The init function is used to initialize the application helper functions
+		* The helper functions are found in the internal/initializers folder
+		* These functions are important for the system to function correctly
 	*/
 	initializers.InitDB()
 	initializers.MigrateTables()
@@ -19,7 +19,7 @@ func init() {
 
 func main() {
 	/*
-	* Main program execution and nest for api routes
+		* Main program execution and nest for api routes
 	*/
 
 	r := gin.Default() // Initiliase Gin Router
@@ -27,9 +27,9 @@ func main() {
 	// Authentication routes
 	authGroup := r.Group("/auth")
 	authGroup.POST("/signup", controllers.Signup)
-	authGroup.POST("/login", controllers.Signin)
+	authGroup.POST("/signin", controllers.Signin)
+	authGroup.POST("/signout", controllers.Signout)
 	authGroup.GET("/validate", middleware.RequireAuth, controllers.Validate)
-	// Create logout functionality
 
 	r.Run()
 }

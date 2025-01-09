@@ -47,6 +47,42 @@ All requirements can be found in the `requirements.txt` file
 - `internal/middleware`: runs all middleware utilities of the application.
 
 ________________________________________________________________________
+### cmd / main.go
+
+This is the main execution file, which is handling the execution of the entire application, here what the main is running:
+- Initialisers (Initialise DB connection with Docker and Migrates Tables)
+- Middlewares (Software that runs as an intermediary)
+- HTTP routes with Gin assigned to controllers.
+
+```go
+func init() {
+	/*
+		* The init function is used to initialize the application helper functions
+		* The helper functions are found in the internal/initializers folder
+		* These functions are important for the system to function correctly
+	*/
+	initializers.InitDB()
+	initializers.MigrateTables()
+}
+
+func main() {
+	/*
+		* Main program execution and nest for api routes
+	*/
+
+	r := gin.Default() // Initiliase Gin Router
+
+	// Authentication routes
+	authGroup := r.Group("/auth")
+	authGroup.POST("/signup", controllers.Signup)
+	authGroup.POST("/signin", controllers.Signin)
+	authGroup.POST("/signout", controllers.Signout)
+	authGroup.GET("/validate", middleware.RequireAuth, controllers.Validate)
+
+	r.Run()
+}
+```
+________________________________________________________________________
 ### API Features
 
 #### Database Connection:
@@ -170,3 +206,166 @@ func MigrateTables() {
 ```
 
 ________________________________________________________________________
+#### Authentication & Google OAuth2:
+
+The authorization is implemented using JWT and OAuth for Google (In Development)
+Further we will implement **Redis** for faster login query and and token invalidation when logging out.
+
+##### Signup:
+
+Register a user account
+
+```go
+func Signup(c *gin.Context) {
+    var body struct {
+        FirstName    string `json:"firstName" binding:"required"`
+        LastName     string `json:"lastName" binding:"required"`
+        Username     string `json:"username" binding:"required"`
+        Email        string `json:"email" binding:"required,email"`
+        Password     string `json:"password" binding:"required,min=8"`
+        PhoneNumber  string `json:"phoneNumber"`
+    }
+
+    // Bind and validate the request body
+    if err := c.ShouldBindJSON(&body); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // Hash the password
+    hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+        return
+    }
+
+    // Create the user object
+    user := models.User{
+        FirstName:    body.FirstName,
+        LastName:     body.LastName,
+        Username:     body.Username,
+        Email:        body.Email,
+        PasswordHash: string(hash),
+        PhoneNumber:  body.PhoneNumber,
+    }
+
+    // Save the user to the database
+    result := initializers.DB.Create(&user)
+    if result.Error != nil {
+        if strings.Contains(result.Error.Error(), "duplicate key") {
+            if strings.Contains(result.Error.Error(), "email") {
+                c.JSON(http.StatusConflict, gin.H{"error": "Email already registered"})
+				log.Printf("Email already registered")
+                return
+            }
+            if strings.Contains(result.Error.Error(), "username") {
+                c.JSON(http.StatusConflict, gin.H{"error": "Username already taken"})
+				log.Printf("Username already taken")
+                return
+            }
+        }
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+		log.Printf("Failed to create user")
+        return
+    }
+
+    // Respond with success
+    c.JSON(http.StatusCreated, gin.H{"message": "User created successfully"})
+}
+```
+
+##### Signin:
+
+Sign in the user to the their Grabit account by generating a session JWT token lasting 24h.
+
+```go
+func Signin(c *gin.Context) {
+    var body struct {
+        Email    string `json:"email" binding:"required,email"`
+        Password string `json:"password" binding:"required"`
+    }
+
+	// Check if the key / value data of payload is correct
+    if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if credetentials are correct
+    var user models.User
+	if err := initializers.DB.First(&user, "email = ?", body.Email).Error; err != nil {
+    	_ = bcrypt.CompareHashAndPassword([]byte("$2a$10$dummyHashForTimingAttack"), []byte(body.Password))
+    	c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
+    	return
+	}
+
+
+    if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.Password)); err != nil {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
+        return
+    }
+
+    // Create token
+    now := time.Now()
+    claims := jwt.MapClaims{
+        "sub": user.ID,
+        "exp": now.Add(time.Hour * 24).Unix(),
+        "iat": now.Unix(),
+        "username": user.Username,
+    }
+
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+    tokenString, err := token.SignedString([]byte(os.Getenv("SECRET")))
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create token"})
+		log.Printf("Error signing token: %v", err)
+        return
+    }
+
+    // Set cookie
+    c.SetSameSite(http.SameSiteStrictMode)
+    c.SetCookie(
+        "Authorization",
+        tokenString,
+        3600*24,  // 24 hours
+        "/",      // Path
+        "",       // Domain
+        true,     // Secure
+        true,     // HttpOnly
+    )
+
+	// Return user with successful status response
+    c.JSON(http.StatusOK, gin.H{
+        "token": tokenString,
+        "user": gin.H{
+            "id": user.ID,
+            "username": user.Username,
+            "email": user.Email,
+        },
+    })
+}
+```
+
+##### Signout:
+
+Here is the simple implementation of cookie clearing that indicates signing out a user.
+Further down the development of this application we will implement Redis to invalidate the tokens.
+
+```go
+func Signout(c *gin.Context) {
+    c.SetSameSite(http.SameSiteStrictMode)
+    c.SetCookie(
+        "Authorization",  // name
+        "",              // value (empty)
+        -1,             // maxAge (-1 means delete immediately)
+        "/",            // path
+        "",             // domain
+        true,           // secure
+        true,           // httpOnly
+    )
+
+    c.JSON(http.StatusOK, gin.H{
+        "message": "Successfully logged out",
+    })
+}
+```
