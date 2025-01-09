@@ -30,12 +30,25 @@ services:
 
     depends_on:
       - db
+      - redis
 
     environment:
       - DB=host=db user=posgres password=postgres dbname=postgres port=5432 sslmode=disable
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
 
     ports:
       - 8080:8080
 
+  redis:
+    image: redis:latest
+    container_name: my-redis
+    ports:
+      - 6379:6379
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+
 volumes:
   db_data:
+  redis_data:
