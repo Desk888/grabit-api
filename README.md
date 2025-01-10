@@ -51,5 +51,5 @@ All requirements can be found in the `requirements.txt` file
 - `internal/middleware`: runs all middleware utilities of the application.
 
 ________________________________________________________________________
-### Main Documentation In Development
+### Main Documentation In Development ⚙️
 
