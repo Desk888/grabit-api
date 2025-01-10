@@ -1,216 +1,403 @@
 package controllers
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
-	"time"
 	"os"
 	"strings"
-	"log"
-	"fmt"
+	"time"
 
 	"github.com/Desk888/api/internal/initializers"
 	"github.com/Desk888/api/internal/models"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 )
 
-func Signup(c *gin.Context) {
-	// User Registration Functionality
+const (
+	maxSessionsPerUser = 5 // Maximum number of active sessions per user
+	redisTimeout      = 5 * time.Second // Timeout for Redis operations
+	tokenExpiry       = 24 * time.Hour // Expiry time for JWT tokens
+)
 
-    var body struct {
-        FirstName    string `json:"firstName" binding:"required"`
-        LastName     string `json:"lastName" binding:"required"`
-        Username     string `json:"username" binding:"required"`
-        Email        string `json:"email" binding:"required,email"`
-        Password     string `json:"password" binding:"required,min=8"`
-        PhoneNumber  string `json:"phoneNumber"`
-    }
-
-    // Bind and validate the request body
-    if err := c.ShouldBindJSON(&body); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
-
-    // Hash the password
-    hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
-        return
-    }
-
-    // Create the user object
-    user := models.User{
-        FirstName:    body.FirstName,
-        LastName:     body.LastName,
-        Username:     body.Username,
-        Email:        body.Email,
-        PasswordHash: string(hash),
-        PhoneNumber:  body.PhoneNumber,
-    }
-
-    // Save the user to the database
-    result := initializers.DB.Create(&user)
-    if result.Error != nil {
-        if strings.Contains(result.Error.Error(), "duplicate key") {
-            if strings.Contains(result.Error.Error(), "email") {
-                c.JSON(http.StatusConflict, gin.H{"error": "Email already registered"})
-				log.Printf("Email already registered")
-                return
-            }
-            if strings.Contains(result.Error.Error(), "username") {
-                c.JSON(http.StatusConflict, gin.H{"error": "Username already taken"})
-				log.Printf("Username already taken")
-                return
-            }
-        }
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
-		log.Printf("Failed to create user")
-        return
-    }
-
-    // Respond with success
-    c.JSON(http.StatusCreated, gin.H{"message": "User created successfully"})
+// SessionData represents the data stored in a user session.
+// It includes the user's ID, username, IP address, user agent, and the time the session was created.
+type SessionData struct {
+	UserID    uint      `json:"user_id"`
+	Username  string    `json:"username"`
+	IP        string    `json:"ip"`
+	UserAgent string    `json:"user_agent"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
-func Signin(c *gin.Context) {
-	// User Login Functionality 
+// Redis Helper functions
+func contextWithTimeout() (context.Context, context.CancelFunc) {
+	// Create a context with a timeout
+	return context.WithTimeout(context.Background(), redisTimeout)
+}
 
-    var body struct {
-        Email    string `json:"email" binding:"required,email"`
-        Password string `json:"password" binding:"required"`
-    }
+func generateTokenHash(token string) string {
+	// Generate a SHA-256 hash of the token
+	hash := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(hash[:])
+}
 
-	// Check if the key / value data of payload is correct
-    if err := c.ShouldBindJSON(&body); err != nil {
+func getUserSessionKey(userID uint) string {
+	// Generate a key for storing user sessions in Redis
+	return fmt.Sprintf("user_sessions:%d", userID)
+}
+
+func Signup(c *gin.Context) {
+	var body struct {
+		FirstName    string `json:"firstName" binding:"required"`
+		LastName     string `json:"lastName" binding:"required"`
+		Username     string `json:"username" binding:"required"`
+		Email        string `json:"email" binding:"required,email"`
+		Password     string `json:"password" binding:"required,min=8"`
+		PhoneNumber  string `json:"phoneNumber"`
+	}
+
+	// Bind request body to struct for payload validation
+	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Check if credetentials are correct
-    var user models.User
-	if err := initializers.DB.First(&user, "email = ?", body.Email).Error; err != nil {
-    	_ = bcrypt.CompareHashAndPassword([]byte("$2a$10$dummyHashForTimingAttack"), []byte(body.Password))
-    	c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
-    	return
+	// Hash password
+	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("Failed to hash password: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+		return
 	}
 
+	// Create user
+	user := models.User{
+		FirstName:    body.FirstName,
+		LastName:     body.LastName,
+		Username:     body.Username,
+		Email:        body.Email,
+		PasswordHash: string(hash),
+		PhoneNumber:  body.PhoneNumber,
+	}
 
-    if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.Password)); err != nil {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
-        return
-    }
+	// Save user to database
+	result := initializers.DB.Create(&user)
 
-    // Create token
-    now := time.Now()
-    claims := jwt.MapClaims{
-        "sub": user.ID,
-        "exp": now.Add(time.Hour * 24).Unix(),
-        "iat": now.Unix(),
-        "username": user.Username,
-    }
+	// Check for duplicate key errors (Email and Username)
+	if result.Error != nil {
+		if strings.Contains(result.Error.Error(), "duplicate key") {
+			if strings.Contains(result.Error.Error(), "email") {
+				c.JSON(http.StatusConflict, gin.H{"error": "Email already registered"})
+				return
+			}
+			if strings.Contains(result.Error.Error(), "username") {
+				c.JSON(http.StatusConflict, gin.H{"error": "Username already taken"})
+				return
+			}
+		}
+		log.Printf("Failed to create user: %v", result.Error)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+		return
+	}
 
-    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-    tokenString, err := token.SignedString([]byte(os.Getenv("SECRET")))
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create token"})
+	// Return success response
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "User created successfully",
+		"user": gin.H{
+			"id":        user.ID,
+			"username":  user.Username,
+			"email":     user.Email,
+			"firstName": user.FirstName,
+			"lastName":  user.LastName,
+		},
+	})
+}
+
+func Signin(c *gin.Context) {
+	var body struct {
+		Email    string `json:"email" binding:"required,email"`
+		Password string `json:"password" binding:"required"`
+	}
+	// Bind request body to struct for payload validation
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Find user by email
+	var user models.User
+	if err := initializers.DB.First(&user, "email = ?", body.Email).Error; err != nil {
+		_ = bcrypt.CompareHashAndPassword([]byte("$2a$10$dummyHashForTimingAttack"), []byte(body.Password))
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
+		return
+	}
+
+	// Compare password hashes to finalize authentication
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.Password)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
+		return
+	}
+
+	// Create JWT token
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"sub":      user.ID,
+		"exp":      now.Add(tokenExpiry).Unix(),
+		"iat":      now.Unix(),
+		"username": user.Username,
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString([]byte(os.Getenv("SECRET")))
+
+	// Error handling for token signing
+	if err != nil {
 		log.Printf("Error signing token: %v", err)
-        return
-    }
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create token"})
+		return
+	}
 
-    // Set cookie
-    c.SetSameSite(http.SameSiteStrictMode)
-    c.SetCookie(
-        "Authorization",
-        tokenString,
-        3600*24,  // 24 hours
-        "/",      // Path
-        "",       // Domain
-        true,     // Secure
-        true,     // HttpOnly
-    )
+	// Create session data
+	sessionData := SessionData{
+		UserID:    user.ID,
+		Username:  user.Username,
+		IP:        c.ClientIP(),
+		UserAgent: c.GetHeader("User-Agent"),
+		CreatedAt: now,
+	}
 
-	// Return user with successful status response
-    c.JSON(http.StatusOK, gin.H{
-        "token": tokenString,
-        "user": gin.H{
-            "id": user.ID,
-            "username": user.Username,
-            "email": user.Email,
-        },
-    })
+	sessionJSON, err := json.Marshal(sessionData)
+	if err != nil {
+		log.Printf("Error marshaling session data: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
+		return
+	}
+
+	// Store session data in Redis
+	ctx, cancel := contextWithTimeout()
+	defer cancel()
+
+	tokenHash := generateTokenHash(tokenString)
+	userSessionKey := getUserSessionKey(user.ID)
+
+	pipe := initializers.RedisClient.TxPipeline()
+	pipe.Set(ctx, tokenHash, string(sessionJSON), tokenExpiry)
+	pipe.ZAdd(ctx, userSessionKey, redis.Z{
+		Score:  float64(now.Unix()),
+		Member: tokenHash,
+	})
+	pipe.ZRemRangeByRank(ctx, userSessionKey, 0, -maxSessionsPerUser-1)
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		log.Printf("Redis transaction failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
+		return
+	}
+
+	// Set token as cookie
+	c.SetSameSite(http.SameSiteStrictMode)
+	c.SetCookie(
+		"Authorization",
+		tokenString,
+		int(tokenExpiry.Seconds()),
+		"/",
+		"",
+		true,
+		true,
+	)
+
+	// Return success response
+	c.JSON(http.StatusOK, gin.H{
+		"token": tokenString,
+		"user": gin.H{
+			"id":        user.ID,
+			"username":  user.Username,
+			"email":     user.Email,
+			"firstName": user.FirstName,
+			"lastName":  user.LastName,
+		},
+	})
 }
 
 func Validate(c *gin.Context) {
-	// Validate the user token
+	// Get token from Authorization header
+	tokenString := c.GetHeader("Authorization")
+	if tokenString == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing token"})
+		return
+	}
 
-    // Extract the JWT token from the Authorization header
-    tokenString := c.GetHeader("Authorization")
-    if tokenString == "" {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing token"})
-        return
-    }
+	// Extract token from Authorization header
+	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
+	tokenHash := generateTokenHash(tokenString)
 
-    // Remove the "Bearer " prefix if it exists
-    tokenString = strings.TrimPrefix(tokenString, "Bearer ")
+	// Get session data from Redis
+	ctx, cancel := contextWithTimeout()
+	defer cancel()
 
-    // Parse the token
-    token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-        // Ensure that the token's signing method is valid (HS256 in this case)
-        if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-            return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-        }
+	sessionJSON, err := initializers.RedisClient.Get(ctx, tokenHash).Result()
+	if err != nil {
+		if err == redis.Nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session expired"})
+			return
+		}
+		log.Printf("Redis error in Validate: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate session"})
+		return
+	}
 
-        // Return the secret key for verification
-        return []byte(os.Getenv("SECRET")), nil
-    })
+	// Unmarshal session data
+	var session SessionData
+	if err := json.Unmarshal([]byte(sessionJSON), &session); err != nil {
+		log.Printf("Error unmarshaling session data: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid session data"})
+		return
+	}
 
-    if err != nil || !token.Valid {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
-        return
-    }
+	// Verify JWT token
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(os.Getenv("SECRET")), nil
+	})
+	
+	// Check for token validity
+	if err != nil || !token.Valid {
+		pipe := initializers.RedisClient.TxPipeline()
+		pipe.Del(ctx, tokenHash)
+		pipe.ZRem(ctx, getUserSessionKey(session.UserID), tokenHash)
+		pipe.Exec(ctx)
 
-    // Extract the claims from the token (user ID and other claims)
-    claims, ok := token.Claims.(jwt.MapClaims)
-    if !ok || !token.Valid {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
-        return
-    }
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+		return
+	}
 
-    // Fetch user from the database using the user ID from the claims
-    var user models.User
-    if err := initializers.DB.First(&user, claims["sub"]).Error; err != nil {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
-        return
-    }
+	// Get fresh user data from database
+	var user models.User
+	if err := initializers.DB.First(&user, session.UserID).Error; err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
+		return
+	}
 
-    // Return filtered user data
-    c.JSON(http.StatusOK, gin.H{
-        "user": gin.H{
-            "id":        user.ID,
-            "username":  user.Username,
-            "email":     user.Email,
-            "firstName": user.FirstName,
-            "lastName":  user.LastName,
-        },
-    })
+	pipe := initializers.RedisClient.TxPipeline()
+	pipe.Expire(ctx, tokenHash, tokenExpiry)
+	pipe.ZAdd(ctx, getUserSessionKey(session.UserID), redis.Z{
+		Score:  float64(time.Now().Unix()),
+		Member: tokenHash,
+	})
+	if _, err := pipe.Exec(ctx); err != nil {
+		log.Printf("Failed to update session: %v", err)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"user": gin.H{
+			"id":        user.ID,
+			"username":  user.Username,
+			"email":     user.Email,
+			"firstName": user.FirstName,
+			"lastName":  user.LastName,
+		},
+	})
 }
 
 func Signout(c *gin.Context) {
-	// User signout functionality. Clear the auth cookie by setting it to expire
-    c.SetSameSite(http.SameSiteStrictMode)
-    c.SetCookie(
-        "Authorization",  // name
-        "",              // value (empty)
-        -1,             // maxAge (-1 means delete immediately)
-        "/",            // path
-        "",             // domain
-        true,           // secure
-        true,           // httpOnly
-    )
+	tokenString := c.GetHeader("Authorization")
+	if tokenString == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing token"})
+		return
+	}
 
-    c.JSON(http.StatusOK, gin.H{
-        "message": "Successfully logged out",
-    })
+	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
+	tokenHash := generateTokenHash(tokenString)
+
+	ctx, cancel := contextWithTimeout()
+	defer cancel()
+
+	sessionJSON, err := initializers.RedisClient.Get(ctx, tokenHash).Result()
+	if err != nil && err != redis.Nil {
+		log.Printf("Redis error in Signout: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process logout"})
+		return
+	}
+
+	if err == nil {
+		var session SessionData
+		if err := json.Unmarshal([]byte(sessionJSON), &session); err != nil {
+			log.Printf("Error unmarshaling session data: %v", err)
+		} else {
+			pipe := initializers.RedisClient.TxPipeline()
+			pipe.Del(ctx, tokenHash)
+			pipe.ZRem(ctx, getUserSessionKey(session.UserID), tokenHash)
+			if _, err := pipe.Exec(ctx); err != nil {
+				log.Printf("Failed to clean up session: %v", err)
+			}
+		}
+	}
+
+	c.SetSameSite(http.SameSiteStrictMode)
+	c.SetCookie(
+		"Authorization",
+		"",
+		-1,
+		"/",
+		"",
+		true,
+		true,
+	)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Successfully logged out",
+	})
+}
+
+func ListSessions(c *gin.Context) {
+	claims, exists := c.Get("user")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	
+	userClaims, ok := claims.(jwt.MapClaims)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user claims"})
+		return
+	}
+
+	userID := uint(userClaims["sub"].(float64))
+	ctx, cancel := contextWithTimeout()
+	defer cancel()
+
+	userSessionKey := getUserSessionKey(userID)
+	tokens, err := initializers.RedisClient.ZRange(ctx, userSessionKey, 0, -1).Result()
+	if err != nil {
+		log.Printf("Failed to get user sessions: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve sessions"})
+		return
+	}
+
+	var sessions []SessionData
+	for _, tokenHash := range tokens {
+		sessionJSON, err := initializers.RedisClient.Get(ctx, tokenHash).Result()
+		if err != nil {
+			continue
+		}
+
+		var session SessionData
+		if err := json.Unmarshal([]byte(sessionJSON), &session); err != nil {
+			continue
+		}
+		sessions = append(sessions, session)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"sessions": sessions,
+	})
 }
