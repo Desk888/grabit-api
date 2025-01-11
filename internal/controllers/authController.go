@@ -16,6 +16,7 @@ import (
 	"github.com/Desk888/api/internal/models"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
+	"github.com/markbates/goth/gothic"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -287,6 +288,7 @@ func Validate(c *gin.Context) {
 		return
 	}
 
+	// Update session expiry and return user data
 	pipe := initializers.RedisClient.TxPipeline()
 	pipe.Expire(ctx, tokenHash, tokenExpiry)
 	pipe.ZAdd(ctx, getUserSessionKey(session.UserID), redis.Z{
@@ -309,15 +311,17 @@ func Validate(c *gin.Context) {
 }
 
 func Signout(c *gin.Context) {
+	// Get token from Authorization header
 	tokenString := c.GetHeader("Authorization")
 	if tokenString == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing token"})
 		return
 	}
-
+	// Extract token from Authorization header
 	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
 	tokenHash := generateTokenHash(tokenString)
 
+	// Get session data from Redis and delete it
 	ctx, cancel := contextWithTimeout()
 	defer cancel()
 
@@ -327,7 +331,7 @@ func Signout(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process logout"})
 		return
 	}
-
+	// Clean up session data error handling
 	if err == nil {
 		var session SessionData
 		if err := json.Unmarshal([]byte(sessionJSON), &session); err != nil {
@@ -341,7 +345,7 @@ func Signout(c *gin.Context) {
 			}
 		}
 	}
-
+	// Clear token cookie
 	c.SetSameSite(http.SameSiteStrictMode)
 	c.SetCookie(
 		"Authorization",
@@ -359,6 +363,7 @@ func Signout(c *gin.Context) {
 }
 
 func ListSessions(c *gin.Context) {
+	// Get user ID from JWT claims
 	claims, exists := c.Get("user")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
@@ -370,7 +375,7 @@ func ListSessions(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user claims"})
 		return
 	}
-
+	// Get user sessions from Redis
 	userID := uint(userClaims["sub"].(float64))
 	ctx, cancel := contextWithTimeout()
 	defer cancel()
@@ -382,7 +387,8 @@ func ListSessions(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve sessions"})
 		return
 	}
-
+	
+	// Unmarshal session data and return it
 	var sessions []SessionData
 	for _, tokenHash := range tokens {
 		sessionJSON, err := initializers.RedisClient.Get(ctx, tokenHash).Result()
@@ -399,5 +405,40 @@ func ListSessions(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"sessions": sessions,
+	})
+}
+
+// Google OAuth
+func SignInWithProvider(c *gin.Context) {
+	// Get the provider name from the URL
+	provider := c.Param("provider")
+	q := c.Request.URL.Query()
+	q.Add("provider", provider)
+	c.Request.URL.RawQuery = q.Encode()
+
+	gothic.BeginAuthHandler(c.Writer, c.Request)
+}
+
+func Callback(c *gin.Context) {
+	// Get the provider name from the URL
+	provider := c.Param("provider")
+	q := c.Request.URL.Query()
+	q.Add("provider", provider)
+	c.Request.URL.RawQuery = q.Encode()
+
+	// Complete the authentication process
+	_, err := gothic.CompleteUserAuth(c.Writer, c.Request)
+	if err != nil {
+		c.AbortWithError(http.StatusInternalServerError, err)
+		return 
+	}
+
+	c.Redirect(http.StatusTemporaryRedirect, "/auth/success")
+}
+
+func Success(c *gin.Context) {
+	// Return success message after authentication
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Successfully authenticated",
 	})
 }
