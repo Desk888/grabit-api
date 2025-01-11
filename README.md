@@ -19,11 +19,13 @@ Install the following packages required for the functioning of this application,
 ```bash
 go get -u gorm.io/gorm
 go get -u gorm.io/driver/postgres
-go get -u github.com/dgrijalva/jwt-go
+go get -u github.com/golang-jwt/jwt/v5
 go get -u github.com/gin-gonic/gin
 go get -u github.com/joho/godotenv
 go get -u github.com/redis/go-redis/v9
-go get -u golang.org/x/crypto/bcrypt
+go get -u github.com/markbates/goth 
+go get -u golang.org/x/oauth2/google
+go get -u github.com/markbates/goth/gothic@v1.80.0
 
 ```
 

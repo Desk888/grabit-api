@@ -1,4 +1,4 @@
-# List of all Go project dependencies
+# List of all project dependencies
 
 go get -u gorm.io/gorm
 go get -u gorm.io/driver/postgres
