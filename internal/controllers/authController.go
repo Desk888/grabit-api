@@ -27,8 +27,10 @@ const (
 	tokenExpiry       = 24 * time.Hour // Expiry time for JWT tokens
 )
 
-// SessionData represents the data stored in a user session.
-// It includes the user's ID, username, IP address, user agent, and the time the session was created.
+/* 
+	SessionData represents the data stored in a user session.
+ 	It includes the user's ID, username, IP address, user agent, and the time the session was created. 
+*/
 type SessionData struct {
 	UserID    uint      `json:"user_id"`
 	Username  string    `json:"username"`
