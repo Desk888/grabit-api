@@ -33,9 +33,21 @@ services:
       - redis
 
     environment:
-      - DB=host=db user=posgres password=postgres dbname=postgres port=5432 sslmode=disable
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=postgres
+      - DB_SSLMODE=disable
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - CLIENT_ID=${CLIENT_ID}
+      - CLIENT_SECRET=${CLIENT_SECRET}
+      - CLIENT_CALLBACK_URL=${CLIENT_CALLBACK_URL}
+      - ENDPOINT=${ENDPOINT}
+      - ACCESS_KEY=${ACCESS_KEY}
+      - SECRET_ACCESS_KEY=${SECRET_ACCESS_KEY}
+      - REGION=${REGION}
 
     ports:
       - 8080:8080

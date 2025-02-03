@@ -39,6 +39,9 @@ func main() {
 	authGroup.POST("/signout", controllers.Signout)
 	authGroup.GET("/validate", middleware.RequireAuth, controllers.Validate)
 	authGroup.GET("/list_sessions", middleware.RequireAuth, controllers.ListSessions)
+	authGroup.POST("/initiate-reset", controllers.InitiatePasswordReset)
+	authGroup.POST("/validate-reset-token", controllers.ValidateResetToken)
+	authGroup.POST("/update-password", controllers.UpdatePassword)
 
 	// Google Authentication
 

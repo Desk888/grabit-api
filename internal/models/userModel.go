@@ -15,6 +15,8 @@ type User struct {
 	Username     string `gorm:"uniqueIndex;not null"`
 	Email        string `gorm:"uniqueIndex;not null"`
 	PasswordHash string `gorm:"not null"`
+	PasswordResetToken  string    `gorm:"-"`
+    PasswordResetExpiry time.Time `gorm:"-"`
 	PhoneNumber  string
 	Ads          []Ad       `gorm:"foreignKey:UserID"`
 	FavouriteAds []Favorite `gorm:"foreignKey:UserID"`
