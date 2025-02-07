@@ -22,5 +22,5 @@ func InitDB() {
 		log.Fatal("Failed to connect to the database:", err)
 	}
 	
-	log.Println("Database connection established")
+	log.Println("Connected to the postgres database successfully")
 }

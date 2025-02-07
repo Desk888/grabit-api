@@ -26,7 +26,7 @@ services:
       context: .
       dockerfile: Dockerfile
 
-    container_name: my-go-app
+    container_name: grabit-api-service
 
     depends_on:
       - db
