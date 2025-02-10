@@ -9,3 +9,7 @@ go get -u github.com/redis/go-redis/v9
 go get -u github.com/markbates/goth 
 go get -u golang.org/x/oauth2/google
 go get -u github.com/markbates/goth/gothic@v1.80.0
+go get -u github.com/aws/aws-sdk-go-v2/aws
+go get -u github.com/aws/aws-sdk-go-v2/config
+go get -u github.com/aws/aws-sdk-go-v2/credentials
+go get -u github.com/aws/aws-sdk-go-v2/service/s3

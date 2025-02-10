@@ -30,8 +30,7 @@ func InitS3Conn() {
     log.Printf("Access key length: %d", len(accessKey))
     log.Printf("Secret key length: %d", len(secretKey))
 
-    // Ensure endpoint does not include `/storage/v1`
-    endpoint = strings.TrimSuffix(endpoint, "/storage/v1")
+    endpoint = os.Getenv("ENDPOINT")
     log.Printf("Final formatted endpoint: %s", endpoint)
 
     s3Client, err := NewS3Client(endpoint, accessKey, secretKey, region)
@@ -60,35 +59,38 @@ func InitS3Conn() {
 
 
 func NewS3Client(endpoint, accessKey, secretKey, region string) (*s3.Client, error) {
-    // Create custom resolver that forces virtual-host style addressing off
+    log.Printf("DEBUG: Received region: %s", region)
+    log.Printf("DEBUG: Using endpoint: %s", endpoint)
+
+    // Force "us-east-1" for signing
     customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
         return aws.Endpoint{
             URL:           endpoint,
-            SigningRegion: region,
-            // This is important for Supabase Storage
+            SigningRegion: "us-east-1", // Force correct signing region
             Source:        aws.EndpointSourceCustom,
         }, nil
     })
 
     cfg, err := config.LoadDefaultConfig(context.TODO(),
-    config.WithRegion(region),
-    config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
-        accessKey,
-        secretKey,
-        "",
-    )),
-    config.WithEndpointResolverWithOptions(customResolver),
-    config.WithDefaultsMode(aws.DefaultsModeInRegion),
+        config.WithRegion("us-east-1"), // Ensure region is set for signing
+        config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+            accessKey,
+            secretKey,
+            "",
+        )),
+        config.WithEndpointResolverWithOptions(customResolver),
+        config.WithDefaultsMode(aws.DefaultsModeInRegion),
     )
 
     if err != nil {
         return nil, fmt.Errorf("failed to load AWS config: %w", err)
     }
 
-    // Create S3 client with path style enabled
+    // Force path-style addressing (important for Supabase S3 compatibility)
     s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
         o.UsePathStyle = true
     })
 
     return s3Client, nil
 }
+
