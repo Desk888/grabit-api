@@ -10,7 +10,7 @@ import (
 var RedisClient *redis.Client // Initialize the Redis client
 
 func InitRedis()  {
-	// Create a new Redis client``
+	// Create a new Redis client
 	RedisClient = redis.NewClient(&redis.Options{
 		Addr:     "redis:6379", // Redis host (Docker)
 		Password: "", // No password set
@@ -22,7 +22,6 @@ func InitRedis()  {
 		fmt.Println("Error connecting to Redis:", err) // remove in prod
 		log.Println("Error connecting to Redis:", err)
 	}
-	fmt.Println("Connected to Redis successfully") // remove in prod
 	log.Println("Connected to Redis successfully")
 }
 
