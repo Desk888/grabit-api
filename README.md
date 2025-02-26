@@ -8,9 +8,9 @@ ________________________________________________________________________
 #### Specifications:
 
 - **Main Language:** Go `v1.23.0`
-- **Development Db:** PostgresSQL 13.3+ installed on Docker Image.
-- **Production Db:** PostgreSQL 13.3 (managed separately on **Supabase** [To be created])
+- **Database:** PostgresSQL 13.3+ installed on Docker Image.
 - **Redis:** installed on Docker image with **Redis Commander GUI Tool**
+- **MiniO:** installed on Docker and used as alternative to S3
 
 #### Dependencies:
 
@@ -26,6 +26,10 @@ go get -u github.com/redis/go-redis/v9
 go get -u github.com/markbates/goth 
 go get -u golang.org/x/oauth2/google
 go get -u github.com/markbates/goth/gothic@v1.80.0
+go get -u github.com/aws/aws-sdk-go-v2/aws
+go get -u github.com/aws/aws-sdk-go-v2/config
+go get -u github.com/aws/aws-sdk-go-v2/credentials
+go get -u github.com/aws/aws-sdk-go-v2/service/s3
 
 ```
 
