@@ -31,8 +31,11 @@ func main() {
 
 	r := gin.Default() // Initiliase Gin Router
 
-	// Authentication routes
+	// Route Groups
 	authGroup := r.Group("/auth")
+	profileGroup := r.Group("/profile")
+
+	// //////////////////////////
 
 	// Standard Authentication
 	authGroup.POST("/signup", controllers.Signup)
@@ -45,10 +48,16 @@ func main() {
 	authGroup.POST("/update-password", controllers.UpdatePassword)
 
 	// Google Authentication
-
 	authGroup.GET("/:provider", controllers.SignInWithProvider)
 	authGroup.GET("/:provider/callback", controllers.Callback)
 	authGroup.GET("/success", controllers.Success)
+
+	// //////////////////////////
+
+	// Profile routes
+	profileGroup.GET("/:userID", middleware.RequireAuth, controllers.ViewProfile)
+	profileGroup.PUT("/:userID", controllers.EditProfile)
+	profileGroup.DELETE("/:userID", middleware.RequireAuth, controllers.DeleteProfile)
 
 	r.Run()
 }

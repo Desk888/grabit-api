@@ -65,6 +65,8 @@ func Signup(c *gin.Context) {
 		Email        string `json:"email" binding:"required,email"`
 		Password     string `json:"password" binding:"required,min=8"`
 		PhoneNumber  string `json:"phoneNumber"`
+		City         string `json:"city"`
+		Country      string `json:"country"`
 	}
 
 	// Bind request body to struct for payload validation
@@ -89,6 +91,8 @@ func Signup(c *gin.Context) {
 		Email:        body.Email,
 		PasswordHash: string(hash),
 		PhoneNumber:  body.PhoneNumber,
+		City: body.City,
+		Country: body.Country,
 	}
 
 	// Save user to database
@@ -120,6 +124,9 @@ func Signup(c *gin.Context) {
 			"email":     user.Email,
 			"firstName": user.FirstName,
 			"lastName":  user.LastName,
+			"phoneNumber": user.PhoneNumber,
+			"city": user.City,
+			"country": user.Country,
 		},
 	})
 }
